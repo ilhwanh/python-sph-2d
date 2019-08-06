@@ -53,7 +53,7 @@ def kernel_laplacian_viscosity(h):
         return np.where(r_ab < 1, C * (1 - r_ab / h), np.zeros_like(r_ab))
 
 
-class Particle:
+class ParticleInterface:
     h = 0.0457
     kernel_poly_6 = kernel_poly_6(h)
     kernel_gradient_poly_6 = kernel_gradient_poly_6(h)
@@ -64,6 +64,8 @@ class Particle:
     kernel_gradient_viscosity = kernel_gradient_viscosity(h)
     kernel_laplacian_viscosity = kernel_laplacian_viscosity(h)
 
+
+class Particle(ParticleInterface):
     def __init__(self):
         self.density = 0
         self.position = np.array((0, 0))
@@ -116,7 +118,45 @@ class Particle:
         self.velocity = velocity
 
 
-class ParticelPool:
-    def __init__(self, num_particles, h):
-        self.parts = [Particle() for _ in range(num_particles)]
+from collections import defaultdict
+from itertools import product
 
+class ParticelPool:
+    def __init__(self, num_particles, factory):
+        self.parts = [factory() for _ in range(num_particles)]
+        self.h = self.parts[0].h
+        self.grid = defaultdict(list)
+
+
+    def update_grid(self):
+        self.grid = defaultdict(list)
+        for part in self.parts:
+            grid_position = tuple((part.position / self.h).astype(np.int64).tolist())
+            self.grid[grid_position].append(part)
+
+
+    def update(self, interval):
+        self.update_grid()
+
+        for grid_position in self.grid:
+            neighbors = []
+            gx, gy = grid_position
+            for dgx, dgy in product([-1, 0, 1], [-1, 0, 1]):
+                neighbors.extend(self.grid.get((gx + dgx, gy + dgy), []))
+            for part in self.grid[grid_position]:
+                real_neighbors = neighbors[:]
+                real_neighbors.remove(part)
+                part.update_density(real_neighbors)
+        
+        for grid_position in self.grid:
+            neighbors = []
+            gx, gy = grid_position
+            for dgx, dgy in product([-1, 0, 1], [-1, 0, 1]):
+                neighbors.extend(self.grid.get((gx + dgx, gy + dgy), []))
+            for part in self.grid[grid_position]:
+                real_neighbors = neighbors[:]
+                real_neighbors.remove(part)
+                part.update_force(real_neighbors)
+        
+        for part in self.parts:
+            part.update_position(interval)
